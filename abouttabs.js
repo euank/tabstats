@@ -262,7 +262,10 @@ function refreshTabs(windows) {
   templates.main.instantiate(body, data);
 }
 
-function toggle(node) {
+function toggle(event) {
+  console.log(this);
+  var node = this;
+  if(node.nodeName == "UL") return;
   var classes = node.getAttribute('class');
   classes = classes ? classes.split(' ') : [];
   var newClasses = classes.filter(function (c) { return c != 'closed' });
@@ -280,6 +283,7 @@ function toggle(node) {
     }
   }
   node.setAttribute('class', newClasses.join(' '));
+  event.stopPropagation();
 }
 
 window.addEventListener("load", refresh, false);

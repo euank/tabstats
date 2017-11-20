@@ -90,26 +90,17 @@ li.schemes span {
 }
 
 .group, .subgroup {
-  /* Only Firefox >= 39 supports list-style: <string>, so cheat with ::before */
-  list-style: none;
-}
-.group::before {
-  position: absolute;
-  margin-left: -1em;
+  list-style: "▽ ";
 }
 
-.group.closed::before {
-  content: "▷ "
+.group.closed {
+  list-style: "▷ ";
 }
 
-.group.closed:hover::before {
-  content: "▶ "
+.group.closed:hover {
+  list-style: "▶ ";
 }
 
-.group::before {
-  content: "▽ "
-}
-
-.group:hover::before {
-  content: "▼ "
+.group:hover {
+  list-style: "▼ ";
 }
