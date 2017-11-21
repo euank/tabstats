@@ -262,8 +262,9 @@ function refreshTabs(windows) {
   templates.main.instantiate(body, data);
 }
 
-function toggleParent(ev) {
-  toggle(ev.currentTarget.parentNode);
+function toggleSelf(ev) {
+  ev.stopPropagation();
+  toggle(ev.currentTarget);
 }
 
 function toggleParentParentParent(ev) {
