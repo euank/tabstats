@@ -36,18 +36,18 @@
 <template id="main_group">
   <li event-click="${toggleSelf}" template-if="${numDupes}" class="group">
     <span>${length}_unique_${what}</span>
-    <ul template="main_group_with_dupes"></ul>
+    <ul event-click="${squashEvent}" template="main_group_with_dupes"></ul>
   </li>
   <li event-click="${toggleSelf}" template-if="${!numDupes}" class="group closed">
     <span>${numUnique}_unique_${what}</span>
-    <ul class="${what}" template-delay="item" template-data="${unique.byLastAccessed}"></ul>
+    <ul event-click="${squashEvent}" class="${what}" template-delay="item" template-data="${unique.byLastAccessed}"></ul>
   </li>
 </template>
 
 <template id="main_group_with_dupes">
   <li event-click="${toggleSelf}" class="group">
     <span>${numDupes}_${what} in more than 1 tab</span>
-    <span class="actions">
+    <span event-click="${squashEvent}" class="actions">
       <a href="#" event-click="${dupes.dedup}" template-if="${dupes.dedup}">[Dedup]</a>
       <a href="#" event-click="${dupes.close}">[Close]</a>
     </span>
@@ -55,12 +55,12 @@
   </li>
   <li event-click="${toggleSelf}" class="group closed">
     <span>${numUnique}_other_${what}</span>
-    <ul class="${what}" template-delay="item" template-data="${unique.byLastAccessed}"></ul>
+    <ul event-click="${squashEvent}" class="${what}" template-delay="item" template-data="${unique.byLastAccessed}"></ul>
   </li>
 </template>
 
 <template id="item">
-  <li class="closed">
+  <li event-click="${squashEvent}" class="closed">
     <div>
 <!--
       <xul:image validate="never" template-if="${favicon}" src="${favicon}"></xul:image>
@@ -88,7 +88,7 @@
 </template>
 
 <template id="select_dedup">
-  <li>
+  <li event-click="${squashEvent}">
     <span template="last_accessed"></span>
     <span class="actions">
       <a href="#" event-click="${switchTo}">[Switch to]</a>

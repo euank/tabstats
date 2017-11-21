@@ -262,6 +262,10 @@ function refreshTabs(windows) {
   templates.main.instantiate(body, data);
 }
 
+function squashEvent(ev) {
+  ev.stopPropagation();
+}
+
 function toggleSelf(ev) {
   ev.stopPropagation();
   toggle(ev.currentTarget);
