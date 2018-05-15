@@ -23,7 +23,8 @@ Tab.prototype = {
   },
 
   switchTo: function () {
-    browser.tabs.update(this.obj.id, {active: true}).then(function() {
+    browser.tabs.update(this.obj.id, {active: true}).then(function(tab) {
+      return browser.windows.update(tab.windowId, {focused: true});
     }, onError);
   },
 
