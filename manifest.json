@@ -1,13 +1,8 @@
 {
   "manifest_version": 2,
-  "name": "Tab Stats",
+  "name": "Tab Stats: Expanded",
   "version": "0.1.6",
   "description": "Provide some data about open tabs.",
-  "applications": {
-    "gecko": {
-      "id": "tabstats@glandium.org"
-    }
-  },
   "browser_action": {
     "browser_style": false,
     "default_area": "tabstrip",
