@@ -355,7 +355,7 @@ function updateParentCounts(removedLi) {
 function cleanupEmptyGroups() {
   for (const group of document.querySelectorAll('li.group')) {
     const ul = group.querySelector(':scope > ul');
-    if (ul?.children.length === 0) {
+    if (ul?.children.length === 0 && !ul.instantiate) {
       group.style.maxHeight = `${group.offsetHeight}px`;
       group.offsetHeight; // Force reflow
       group.classList.add('removing');
