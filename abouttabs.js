@@ -12,11 +12,23 @@ var Tab = function (tab) {
 };
 
 Tab.prototype = {
-  close: function (refresh=true) {
+  close: function (refreshOrEvent=true) {
     var that = this;
+    var isEvent = refreshOrEvent && typeof refreshOrEvent === 'object' && refreshOrEvent.preventDefault;
+    if (isEvent) {
+      refreshOrEvent.preventDefault();
+      refreshOrEvent.stopPropagation();
+    }
+    var scheme = getScheme(this.url);
+    var schemes = {};
+    if (scheme) {
+      schemes[scheme] = 1;
+    }
     browser.tabs.remove(this.obj.id).then(function() {
       delete that.obj;
-      if (refresh !== false) {
+      if (isEvent) {
+        removeElementInPlace(refreshOrEvent, 1, null, schemes);
+      } else if (refreshOrEvent !== false) {
         window.refresh();
       }
     }, onError);
@@ -38,19 +50,40 @@ Tab.prototype = {
 };
 
 var _TabListMethods = {
-  close_or_dedup: { value: function (keep_one) {
+  close_or_dedup: { value: function (keep_one, ev) {
+    if (ev) {
+      ev.preventDefault();
+      ev.stopPropagation();
+    }
+    var tabsToClose = [];
+    var keptTab = null;
     for (var tab of (keep_one ? this.byLastAccessed() : this)) {
       if (keep_one) {
         keep_one = false;
+        keptTab = tab;
         continue;
+      }
+      tabsToClose.push(tab);
+    }
+    var closedCount = tabsToClose.length;
+    // Collect schemes before closing
+    var schemes = {};
+    for (var tab of tabsToClose) {
+      var scheme = getScheme(tab.url);
+      if (scheme) {
+        schemes[scheme] = (schemes[scheme] || 0) + 1;
       }
       tab.close(false);
     }
-    refresh();
+    if (ev) {
+      removeElementInPlace(ev, closedCount, keptTab, schemes);
+    } else {
+      refresh();
+    }
   }},
 
-  close: { value: function () {
-    this.close_or_dedup(false);
+  close: { value: function (ev) {
+    this.close_or_dedup(false, ev);
   }},
 
   byLastAccessed: { value: function* () {
@@ -106,8 +139,8 @@ var DedupableTabArray = function () {
 };
 
 DedupableTabArray.prototype = Object.create(TabArray.prototype, {
-  dedup: { value: function () {
-    this.close_or_dedup(true);
+  dedup: { value: function (ev) {
+    this.close_or_dedup(true, ev);
   }},
 });
 
@@ -115,9 +148,28 @@ var TabGroup = function () {
 };
 
 function _tabGroupMethod(name) {
-  return function () {
+  return function (ev) {
+    if (ev) {
+      ev.preventDefault();
+      ev.stopPropagation();
+    }
+    var schemes = {};
+    var closedCount = 0;
     for (var group in this) {
-      this[group][name]();
+      // Count tabs and schemes before closing
+      for (var tab of this[group]) {
+        var scheme = getScheme(tab.url);
+        if (scheme) {
+          schemes[scheme] = (schemes[scheme] || 0) + 1;
+        }
+        closedCount++;
+      }
+      this[group][name](null);
+    }
+    if (ev) {
+      removeElementInPlace(ev, closedCount, null, schemes);
+    } else {
+      refresh();
     }
   }
 }
@@ -199,6 +251,150 @@ Sortable.prototype = Object.create(Object.prototype, {
   }},
 });
 
+function getScheme(url) {
+  if (!url) return null;
+  var match = url.match(/^([a-z][a-z0-9+.-]*:)/i);
+  return match ? match[1] : null;
+}
+
+function removeElementInPlace(ev, closedCount, keptTab, schemes) {
+  var target = ev.target;
+
+  // Find the parent <li> that should be animated out
+  var li = target;
+  while (li && li.tagName !== 'LI') {
+    li = li.parentNode;
+  }
+  if (!li) {
+    refresh();
+    return;
+  }
+
+  // Check if this is an item-level close (inside a group) or group-level close
+  var parentUl = li.parentNode;
+  var isGroupLevel = li.classList.contains('group') && parentUl && parentUl.id === 'stats';
+  var isSubGroupLevel = li.classList.contains('group') && parentUl && parentUl.classList.contains('host') || parentUl && parentUl.classList.contains('address');
+
+  // Update the tab count in the header
+  var h1 = document.querySelector('h1');
+  if (h1 && closedCount > 0) {
+    var currentCount = parseInt(h1.textContent) || 0;
+    var newCount = currentCount - closedCount;
+    h1.textContent = newCount + ' tab' + (newCount === 1 ? '' : 's');
+  }
+
+  // Update "loaded tabs" count
+  var loadedLi = document.querySelector('#stats > li:first-child');
+  if (loadedLi && closedCount > 0) {
+    var match = loadedLi.textContent.match(/^(\d+)/);
+    if (match) {
+      var loadedCount = parseInt(match[1]) || 0;
+      var newLoaded = Math.max(0, loadedCount - closedCount);
+      loadedLi.textContent = newLoaded + ' tab' + (newLoaded === 1 ? '' : 's') + ' ' + (newLoaded === 1 ? 'has' : 'have') + ' been loaded';
+    }
+  }
+
+  // Update scheme counts
+  if (schemes) {
+    var schemesLi = document.querySelector('li.schemes');
+    if (schemesLi) {
+      var spans = schemesLi.querySelectorAll('span');
+      for (var span of spans) {
+        var text = span.textContent;
+        var schemeMatch = text.match(/^(\d+)\s+(.+)$/);
+        if (schemeMatch) {
+          var count = parseInt(schemeMatch[1]);
+          var schemeKey = schemeMatch[2];
+          if (schemes[schemeKey]) {
+            var newCount = count - schemes[schemeKey];
+            if (newCount > 0) {
+              span.textContent = newCount + ' ' + schemeKey;
+            } else {
+              span.remove();
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // If this is a sub-item being closed (not a whole group), we may need to update parent counts
+  if (!isGroupLevel && !isSubGroupLevel) {
+    updateParentCounts(li, closedCount, keptTab);
+  }
+
+  // Animate the element out
+  li.style.maxHeight = li.offsetHeight + 'px';
+  // Force reflow
+  li.offsetHeight;
+  li.classList.add('removing');
+
+  li.addEventListener('transitionend', function onEnd(e) {
+    if (e.propertyName === 'opacity') {
+      li.removeEventListener('transitionend', onEnd);
+      li.remove();
+
+      // Clean up empty parent groups
+      cleanupEmptyGroups();
+    }
+  });
+}
+
+function updateParentCounts(removedLi, closedCount, keptTab) {
+  // Walk up to find group headers and update their counts
+  var parent = removedLi.parentNode;
+  while (parent) {
+    if (parent.tagName === 'LI' && parent.classList.contains('group')) {
+      var span = parent.querySelector(':scope > span');
+      if (span) {
+        var text = span.textContent;
+        // Match patterns like "5 addresses in more than 1 tab" or "3 unique addresses"
+        var match = text.match(/^(\d+)\s+(.*)$/);
+        if (match) {
+          var count = parseInt(match[1]);
+          var rest = match[2];
+          var newCount = count - 1;
+          if (newCount > 0) {
+            // Update count, fix pluralization
+            if (rest.includes(' in more than 1 tab')) {
+              var what = rest.replace(' in more than 1 tab', '');
+              // Fix pluralization for "address" -> "addresses", "host" -> "hosts"
+              if (newCount === 1) {
+                what = what.replace(/addresses$/, 'address').replace(/hosts$/, 'host');
+              }
+              span.textContent = newCount + ' ' + what + ' in more than 1 tab';
+            } else if (rest.includes('unique')) {
+              span.textContent = newCount + ' ' + rest;
+            } else {
+              span.textContent = newCount + ' ' + rest;
+            }
+          }
+        }
+      }
+    }
+    parent = parent.parentNode;
+  }
+}
+
+function cleanupEmptyGroups() {
+  // Remove any groups that now have empty <ul> children
+  var groups = document.querySelectorAll('li.group');
+  for (let group of groups) {
+    var ul = group.querySelector(':scope > ul');
+    if (ul && ul.children.length === 0) {
+      group.style.maxHeight = group.offsetHeight + 'px';
+      group.offsetHeight;
+      group.classList.add('removing');
+      group.addEventListener('transitionend', function onEnd(e) {
+        if (e.propertyName === 'opacity') {
+          e.currentTarget.removeEventListener('transitionend', onEnd);
+          e.currentTarget.remove();
+        }
+      });
+    }
+  }
+}
+
 function refresh() {
   browser.windows.getAll({populate: true, windowTypes: ["normal"]}).then(refreshTabs, onError);
 }
@@ -279,19 +475,64 @@ function toggle(node) {
   var classes = node.getAttribute('class');
   classes = classes ? classes.split(' ') : [];
   var newClasses = classes.filter(function (c) { return c != 'closed' });
-  if (newClasses.length == classes.length) {
+  var isClosing = newClasses.length == classes.length;
+  if (isClosing) {
     newClasses.push('closed');
   }
-  var wasClosed = newClasses.length < classes.length;
-  if (wasClosed) {
-    for (var child of node.children) {
-      if (child.localName == 'ul') {
-        if (child.instantiate) {
-          child.instantiate();
-        }
-      }
+  var wasClosedNowOpening = newClasses.length < classes.length;
+
+  // Find child ul for animation
+  var ul = null;
+  for (var child of node.children) {
+    if (child.localName == 'ul') {
+      ul = child;
+      break;
     }
   }
+
+  if (wasClosedNowOpening) {
+    // Instantiate delayed content if needed
+    if (ul && ul.instantiate) {
+      ul.instantiate();
+    }
+    // Set up expand animation
+    if (ul) {
+      // Remove closed class first so we can measure
+      node.setAttribute('class', newClasses.join(' '));
+      // Set styles for animation
+      ul.style.visibility = 'visible';
+      ul.style.maxHeight = ul.scrollHeight + 'px';
+      ul.style.opacity = '1';
+      // After animation, remove inline styles so content can grow naturally
+      ul.addEventListener('transitionend', function onEnd(e) {
+        if (e.propertyName === 'max-height') {
+          ul.removeEventListener('transitionend', onEnd);
+          ul.style.maxHeight = '';
+          ul.style.opacity = '';
+          ul.style.visibility = '';
+        }
+      });
+      return;
+    }
+  } else if (isClosing && ul) {
+    // Set up collapse animation - first set current height explicitly
+    ul.style.visibility = 'visible';
+    ul.style.maxHeight = ul.scrollHeight + 'px';
+    ul.style.opacity = '1';
+    // Force reflow
+    ul.offsetHeight;
+    // After animation, clear inline styles so CSS takes over
+    ul.addEventListener('transitionend', function onEnd(e) {
+      if (e.propertyName === 'max-height') {
+        ul.removeEventListener('transitionend', onEnd);
+        ul.style.maxHeight = '';
+        ul.style.opacity = '';
+        ul.style.visibility = '';
+      }
+    });
+    // Now apply closed class which will animate to max-height: 0
+  }
+
   node.setAttribute('class', newClasses.join(' '));
 }
 

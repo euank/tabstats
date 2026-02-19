@@ -85,8 +85,18 @@ li.schemes span {
   margin-right: 1em;
 }
 
+/* Collapsible sections */
+.group > ul,
+.closed > ul,
+li > ul {
+  transition: max-height 0.25s ease-out, opacity 0.25s ease-out;
+  overflow: hidden;
+}
+
 .closed > ul {
-  display: none;
+  max-height: 0 !important;
+  opacity: 0;
+  visibility: hidden;
 }
 
 .subgroup {
@@ -107,4 +117,17 @@ li.schemes span {
 
 .group:hover {
   list-style: "▼ "
+}
+
+/* Transition for in-place removal */
+li {
+  transition: opacity 0.25s ease-out, max-height 0.25s ease-out, margin 0.25s ease-out, padding 0.25s ease-out;
+}
+
+li.removing {
+  opacity: 0;
+  max-height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden;
 }
