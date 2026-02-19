@@ -2,134 +2,123 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-var templates = {};
+const templates = {};
 
-var Template = function (template_node) {
-  this._template = template_node.content;
-}
+class Template {
+  constructor(templateNode) {
+    this._template = templateNode.content;
+  }
 
-Template.prototype = {
-  instantiate: function (parentNode, values) {
-    if (typeof values == 'function') {
-      for (var item of values()) {
+  instantiate(parentNode, values) {
+    if (typeof values === 'function') {
+      for (const item of values()) {
         parentNode.appendChild(this._instantiate(item, this._template));
       }
     } else {
       parentNode.appendChild(this._instantiate(values, this._template));
     }
-  },
+  }
 
-  _instantiate: function (values, node) {
-    var newNode;
-    if (node.nodeType == Node.ELEMENT_NODE) {
-      var condition = node.getAttribute('template-if');
+  _instantiate(values, node) {
+    let newNode;
+
+    if (node.nodeType === Node.ELEMENT_NODE) {
+      const condition = node.getAttribute('template-if');
       if (condition && !format(condition, values)) {
         return undefined;
       }
-      if (node.localName == 'apply') {
-        newNode = document.createDocumentFragment();
-      } else {
-        newNode = document.createElementNS(node.namespaceURI, node.localName);
-      }
-      for (var n of node.attributes) {
-        if (n.name.startsWith('event-')) {
-          newNode.addEventListener(n.name.slice(6),
-            format(n.value, values), false);
-        } else if (!n.name.startsWith('template')) {
-          var value = format(n.value, values);
-          if (value && typeof value != 'string') {
+
+      newNode = node.localName === 'apply'
+        ? document.createDocumentFragment()
+        : document.createElementNS(node.namespaceURI, node.localName);
+
+      for (const attr of node.attributes) {
+        if (attr.name.startsWith('event-')) {
+          newNode.addEventListener(attr.name.slice(6), format(attr.value, values), false);
+        } else if (!attr.name.startsWith('template')) {
+          let value = format(attr.value, values);
+          if (value && typeof value !== 'string') {
             value = JSON.stringify(value);
           }
-          newNode.setAttribute(n.name, value ? value : '');
+          newNode.setAttribute(attr.name, value ?? '');
         }
       }
-    } else if (node.nodeType == Node.DOCUMENT_FRAGMENT_NODE) {
+    } else if (node.nodeType === Node.DOCUMENT_FRAGMENT_NODE) {
       newNode = document.createDocumentFragment();
     }
-    for (var n of node.childNodes) {
-      if (n.nodeType == Node.ELEMENT_NODE) {
-        var subNode = this._instantiate(values, n);
+
+    for (const child of node.childNodes) {
+      if (child.nodeType === Node.ELEMENT_NODE) {
+        const subNode = this._instantiate(values, child);
         if (subNode) {
           newNode.appendChild(subNode);
         }
-      } else if (n.nodeType == Node.TEXT_NODE) {
-        var text = format(n.nodeValue, values);
-        if (text && typeof text != 'string') {
+      } else if (child.nodeType === Node.TEXT_NODE) {
+        let text = format(child.nodeValue, values);
+        if (text && typeof text !== 'string') {
           text = JSON.stringify(text);
         }
-        if (text && text.match(/\S/)) {
+        if (text?.match(/\S/)) {
           newNode.appendChild(document.createTextNode(text));
         }
       }
     }
-    if (node.nodeType == Node.ELEMENT_NODE) {
-      var template = node.getAttribute('template-delay');
-      var delay = !!template;
-      if (!template) {
-        template = node.getAttribute('template');
+
+    if (node.nodeType === Node.ELEMENT_NODE) {
+      let templateName = node.getAttribute('template-delay');
+      const delay = !!templateName;
+      if (!templateName) {
+        templateName = node.getAttribute('template');
       }
+
+      const template = templateName ? templates[templateName] : null;
       if (template) {
-        template = templates[template];
-      }
-      if (template) {
-        var data = node.getAttribute('template-data');
+        const dataAttr = node.getAttribute('template-data');
         if (delay) {
-          newNode.instantiate = function () {
-            var d = data ? format(data, values) : values;
+          newNode.instantiate = function() {
+            const d = dataAttr ? format(dataAttr, values) : values;
             template.instantiate(this, d);
             delete this.instantiate;
-          }
+          };
         } else {
-          data = data ? format(data, values) : values;
+          const data = dataAttr ? format(dataAttr, values) : values;
           template.instantiate(newNode, data);
         }
       }
     }
-    return newNode;
-  },
-};
 
-function plural(n, noun) {
-  if (n == 1)
-    return noun;
-  if (noun.endsWith("s"))
-    return noun + "es";
-  if (noun.endsWith("sh"))
-    return noun;
-  if (noun.endsWith("ch"))
-    return noun + "es";
-  if (noun.endsWith("x"))
-    return noun + "es";
-  return noun + "s";
+    return newNode;
+  }
 }
 
-function _get_value(values, expr) {
-  var and = expr.split(/\s*&&\s*/);
-  if (and.length > 1) {
-    for (var expr of and) {
-      if (!_get_value(values, expr))
-        return false;
-    }
-    return true;
+function plural(n, noun) {
+  if (n === 1) return noun;
+  if (noun.endsWith('s')) return noun + 'es';
+  if (noun.endsWith('sh')) return noun;
+  if (noun.endsWith('ch')) return noun + 'es';
+  if (noun.endsWith('x')) return noun + 'es';
+  return noun + 's';
+}
+
+function _getValue(values, expr) {
+  const andParts = expr.split(/\s*&&\s*/);
+  if (andParts.length > 1) {
+    return andParts.every(part => _getValue(values, part));
   }
-  if (expr.charAt(0) == '!') {
-    return !_get_value(values, expr.slice(1));
+
+  if (expr.charAt(0) === '!') {
+    return !_getValue(values, expr.slice(1));
   }
-  var name = expr.split('.', 1)[0];
-  if (name == expr) {
-    var ret;
-    if (expr in values) {
-      ret = values[expr];
-    } else {
-      ret = window[expr];
-    }
-    if (typeof ret == 'function') {
+
+  const name = expr.split('.', 1)[0];
+  if (name === expr) {
+    let ret = expr in values ? values[expr] : window[expr];
+    if (typeof ret === 'function') {
       ret = ret.bind(values);
     }
     return ret;
-  } else {
-    return _get_value(values[name], expr.slice(name.length + 1));
   }
+  return _getValue(values[name], expr.slice(name.length + 1));
 }
 
 // format('${n}_dog ${k}_horse', {n: 2, k: 1}) => "2 dogs 1 horse"
@@ -140,46 +129,49 @@ function _get_value(values, expr) {
 // format('${foo} is ${bar}', {foo: 'a', bar: 'b'}) => "a is b"
 // format('${n} ${bar}', {n: 2, bar: 'http'}) => "2 http"
 function format(str, values) {
-  if (str.indexOf('${') == -1) {
+  if (!str.includes('${')) {
     return str;
   }
-  var template = str.split(/\$\{(\!*[\w\.]+(?:\s*&&\s*\!*[\w\.]+)*)\}/g);
-  if (template.length == 1) {
+
+  const parts = str.split(/\$\{(\!*[\w\.]+(?:\s*&&\s*\!*[\w\.]+)*)\}/g);
+  if (parts.length === 1) {
     return str;
   }
-  if (template.length == 3 && !template[0] && !template[2]) {
-    return _get_value(values, template[1]);
+  if (parts.length === 3 && !parts[0] && !parts[2]) {
+    return _getValue(values, parts[1]);
   }
-  var s = template[0]
-  for (var i = 1; i < template.length; i += 2) {
-    var n = template[i] ? _get_value(values, template[i]) : '';
-    var fragment = template[i+1];
-    if (typeof n == 'string') {
-      s += n + fragment;
+
+  let result = parts[0];
+  for (let i = 1; i < parts.length; i += 2) {
+    const n = parts[i] ? _getValue(values, parts[i]) : '';
+    const fragment = parts[i + 1];
+
+    if (typeof n === 'string') {
+      result += n + fragment;
       continue;
     }
-    if (fragment.charAt(0) == '_') {
-      if (fragment.slice(-1) == '_') {
-        s += n + fragment.replace(/_/g, ' ')
-               + plural(n, _get_value(values, template[i+2]));
-        template[i+2] = '';
+
+    if (fragment.charAt(0) === '_') {
+      if (fragment.slice(-1) === '_') {
+        result += n + fragment.replace(/_/g, ' ') + plural(n, _getValue(values, parts[i + 2]));
+        parts[i + 2] = '';
       } else {
-        s += n + fragment.replace(/^([\w_]*)([^_\W])+/, (_, before, word) =>
-                                  before.replace(/_/g, ' ') + plural(n, word));
+        result += n + fragment.replace(/^([\w_]*)([^_\W])+/, (_, before, word) =>
+          before.replace(/_/g, ' ') + plural(n, word));
       }
-    } else if (fragment.charAt(0) == '?') {
-      s += fragment.replace(/\?\((.*?)\|(.*)\)/, (_, a, b) => (n == 1) ? a : b);
+    } else if (fragment.charAt(0) === '?') {
+      result += fragment.replace(/\?\((.*?)\|(.*)\)/, (_, a, b) => n === 1 ? a : b);
     } else {
-      s += n + fragment;
+      result += n + fragment;
     }
   }
-  return s;
+  return result;
 }
 
 function init() {
-  for (var template of document.getElementsByTagName('template')) {
+  for (const template of document.getElementsByTagName('template')) {
     templates[template.id] = new Template(template);
   }
 }
 
-window.addEventListener("load", init, false);
+window.addEventListener('load', init, false);
