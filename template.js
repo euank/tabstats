@@ -2,18 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-const kNSXUL = 'http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul';
-
 var templates = {};
-
-function empty(obj) {
-  for (var k in obj) {
-    if (k) {
-      return false;
-    }
-  }
-  return true;
-}
 
 var Template = function (template_node) {
   this._template = template_node.content;
@@ -39,8 +28,6 @@ Template.prototype = {
       }
       if (node.localName == 'apply') {
         newNode = document.createDocumentFragment();
-      } else if (node.localName.toLowerCase().startsWith('xul:')) {
-        newNode = document.createElementNS(kNSXUL, node.localName.slice(4));
       } else {
         newNode = document.createElementNS(node.namespaceURI, node.localName);
       }
@@ -143,13 +130,6 @@ function _get_value(values, expr) {
   } else {
     return _get_value(values[name], expr.slice(name.length + 1));
   }
-}
-
-function get_value(str, values) {
-  if (str.startsWith('${') && str.endsWith('}')) {
-    return _get_value(values, str.slice(2, -1));
-  }
-  return str;
 }
 
 // format('${n}_dog ${k}_horse', {n: 2, k: 1}) => "2 dogs 1 horse"

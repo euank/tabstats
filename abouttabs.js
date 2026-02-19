@@ -27,7 +27,7 @@ Tab.prototype = {
     browser.tabs.remove(this.obj.id).then(function() {
       delete that.obj;
       if (isEvent) {
-        removeElementInPlace(refreshOrEvent, 1, null, schemes);
+        removeElementInPlace(refreshOrEvent, 1, schemes);
       } else if (refreshOrEvent !== false) {
         window.refresh();
       }
@@ -35,8 +35,7 @@ Tab.prototype = {
   },
 
   switchTo: function () {
-    browser.tabs.update(this.obj.id, {active: true}).then(function() {
-    }, onError);
+    browser.tabs.update(this.obj.id, {active: true}).catch(onError);
   },
 
   get lastAccessedAgo () {
@@ -56,11 +55,9 @@ var _TabListMethods = {
       ev.stopPropagation();
     }
     var tabsToClose = [];
-    var keptTab = null;
     for (var tab of (keep_one ? this.byLastAccessed() : this)) {
       if (keep_one) {
         keep_one = false;
-        keptTab = tab;
         continue;
       }
       tabsToClose.push(tab);
@@ -76,7 +73,7 @@ var _TabListMethods = {
       tab.close(false);
     }
     if (ev) {
-      removeElementInPlace(ev, closedCount, keptTab, schemes);
+      removeElementInPlace(ev, closedCount, schemes);
     } else {
       refresh();
     }
@@ -87,19 +84,7 @@ var _TabListMethods = {
   }},
 
   byLastAccessed: { value: function* () {
-    var sorted = this.slice();
-    sorted.sort(function(a, b) {
-      time_a = a.lastAccessed;
-      time_b = b.lastAccessed;
-      if (time_a > time_b)
-        return -1;
-      if (time_b > time_a)
-        return 1;
-      return 0;
-    });
-    for (var tab of sorted) {
-      yield tab;
-    }
+    yield* this.slice().sort((a, b) => b.lastAccessed - a.lastAccessed);
   }},
 };
 
@@ -167,7 +152,7 @@ function _tabGroupMethod(name) {
       this[group][name](null);
     }
     if (ev) {
-      removeElementInPlace(ev, closedCount, null, schemes);
+      removeElementInPlace(ev, closedCount, schemes);
     } else {
       refresh();
     }
@@ -178,16 +163,8 @@ TabGroup.prototype = Object.create(Object.prototype, {
   close: { value: _tabGroupMethod('close') },
 
   byLength: { value: function* () {
-    var sorted = Object.keys(this);
-    var that = this;
-    sorted.sort(function(a, b) {
-      if (that[a].length < that[b].length)
-        return 1;
-      if (that[a].length > that[b].length)
-        return -1;
-      return 0;
-    });
-    for (var key of sorted) {
+    var keys = Object.keys(this).sort((a, b) => this[b].length - this[a].length);
+    for (var key of keys) {
       yield this[key];
     }
   }},
@@ -240,16 +217,11 @@ TabCollection.prototype = {
   },
 };
 
-var Sortable = function () {
-};
-
-Sortable.prototype = Object.create(Object.prototype, {
-  byKey: { value: function* () {
-    for (var key of Object.keys(this).sort()) {
-      yield { key: key, value: this[key] };
-    }
-  }},
-});
+function* sortedByKey(obj) {
+  for (var key of Object.keys(obj).sort()) {
+    yield { key: key, value: obj[key] };
+  }
+}
 
 function getScheme(url) {
   if (!url) return null;
@@ -257,7 +229,7 @@ function getScheme(url) {
   return match ? match[1] : null;
 }
 
-function removeElementInPlace(ev, closedCount, keptTab, schemes) {
+function removeElementInPlace(ev, closedCount, schemes) {
   var target = ev.target;
 
   // Find the parent <li> that should be animated out
@@ -320,7 +292,7 @@ function removeElementInPlace(ev, closedCount, keptTab, schemes) {
 
   // If this is a sub-item being closed (not a whole group), we may need to update parent counts
   if (!isGroupLevel && !isSubGroupLevel) {
-    updateParentCounts(li, closedCount, keptTab);
+    updateParentCounts(li);
   }
 
   // Animate the element out
@@ -340,7 +312,7 @@ function removeElementInPlace(ev, closedCount, keptTab, schemes) {
   });
 }
 
-function updateParentCounts(removedLi, closedCount, keptTab) {
+function updateParentCounts(removedLi) {
   // Walk up to find group headers and update their counts
   var parent = removedLi.parentNode;
   while (parent) {
@@ -406,12 +378,13 @@ function onError(error) {
 function refreshTabs(windows) {
   window.refreshTime = new MyDate(Date.now());
 
+  var schemes = {};
   var data = {
     tabCount: 0,
     windowsCount: windows.length,
     blankTabs: 0,
     loadedTabs: 0,
-    schemes: new Sortable(),
+    schemesByKey: function* () { yield* sortedByKey(schemes); },
     uris: new TabCollection('address'),
     hosts: new TabCollection('host'),
     groups: function* () {
@@ -437,16 +410,16 @@ function refreshTabs(windows) {
       data.uris.add(tab.url, tab);
       try {
 	if (loc.host) {
-	  var tab = new Tab(t);
-	  tab.title = loc.host;
-	  delete tab.url;
-	  data.hosts.add(loc.host, tab);
+	  var hostTab = new Tab(t);
+	  hostTab.title = loc.host;
+	  delete hostTab.url;
+	  data.hosts.add(loc.host, hostTab);
 	}
       } catch(e) {}
-      if (loc.protocol in data.schemes)
-	data.schemes[loc.protocol]++;
+      if (loc.protocol in schemes)
+	schemes[loc.protocol]++;
       else
-	data.schemes[loc.protocol] = 1;
+	schemes[loc.protocol] = 1;
     }
   }
 
@@ -472,68 +445,41 @@ function toggleParentParentParent(ev) {
 }
 
 function toggle(node) {
-  var classes = node.getAttribute('class');
-  classes = classes ? classes.split(' ') : [];
-  var newClasses = classes.filter(function (c) { return c != 'closed' });
-  var isClosing = newClasses.length == classes.length;
-  if (isClosing) {
-    newClasses.push('closed');
-  }
-  var wasClosedNowOpening = newClasses.length < classes.length;
+  var wasOpen = !node.classList.contains('closed');
+  var ul = node.querySelector(':scope > ul');
 
-  // Find child ul for animation
-  var ul = null;
-  for (var child of node.children) {
-    if (child.localName == 'ul') {
-      ul = child;
-      break;
+  function clearAnimationStyles(e) {
+    if (e.propertyName === 'max-height') {
+      ul.removeEventListener('transitionend', clearAnimationStyles);
+      ul.style.maxHeight = '';
+      ul.style.opacity = '';
+      ul.style.visibility = '';
     }
   }
 
-  if (wasClosedNowOpening) {
-    // Instantiate delayed content if needed
-    if (ul && ul.instantiate) {
+  if (!wasOpen && ul) {
+    // Opening: instantiate delayed content if needed
+    if (ul.instantiate) {
       ul.instantiate();
     }
-    // Set up expand animation
-    if (ul) {
-      // Remove closed class first so we can measure
-      node.setAttribute('class', newClasses.join(' '));
-      // Set styles for animation
-      ul.style.visibility = 'visible';
-      ul.style.maxHeight = ul.scrollHeight + 'px';
-      ul.style.opacity = '1';
-      // After animation, remove inline styles so content can grow naturally
-      ul.addEventListener('transitionend', function onEnd(e) {
-        if (e.propertyName === 'max-height') {
-          ul.removeEventListener('transitionend', onEnd);
-          ul.style.maxHeight = '';
-          ul.style.opacity = '';
-          ul.style.visibility = '';
-        }
-      });
-      return;
-    }
-  } else if (isClosing && ul) {
-    // Set up collapse animation - first set current height explicitly
+    // Remove closed class first so we can measure
+    node.classList.remove('closed');
+    // Set styles for animation
     ul.style.visibility = 'visible';
     ul.style.maxHeight = ul.scrollHeight + 'px';
     ul.style.opacity = '1';
-    // Force reflow
-    ul.offsetHeight;
-    // After animation, clear inline styles so CSS takes over
-    ul.addEventListener('transitionend', function onEnd(e) {
-      if (e.propertyName === 'max-height') {
-        ul.removeEventListener('transitionend', onEnd);
-        ul.style.maxHeight = '';
-        ul.style.opacity = '';
-        ul.style.visibility = '';
-      }
-    });
-    // Now apply closed class which will animate to max-height: 0
+    ul.addEventListener('transitionend', clearAnimationStyles);
+  } else if (wasOpen && ul) {
+    // Closing: set up collapse animation
+    ul.style.visibility = 'visible';
+    ul.style.maxHeight = ul.scrollHeight + 'px';
+    ul.style.opacity = '1';
+    ul.offsetHeight; // Force reflow
+    ul.addEventListener('transitionend', clearAnimationStyles);
+    node.classList.add('closed');
+  } else {
+    node.classList.toggle('closed');
   }
-
-  node.setAttribute('class', newClasses.join(' '));
 }
 
 window.addEventListener("load", refresh, false);

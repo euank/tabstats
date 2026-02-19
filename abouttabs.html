@@ -23,7 +23,7 @@
   </div>
   <ul id="stats">
     <li>${loadedTabs}_tab ${loadedTabs}?(has|have) been loaded</li>
-    <li class="schemes" template="schemes" template-data="${schemes.byKey}"></li>
+    <li class="schemes" template="schemes" template-data="${schemesByKey}"></li>
     <li template-if="${blankTabs}">${blankTabs}_empty_tab</li>
     <apply template="main_group" template-data="${groups}"></apply>
   </ul>
