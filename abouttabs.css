@@ -95,7 +95,7 @@ li > ul {
 
 .closed > ul {
   max-height: 0 !important;
-  opacity: 0;
+  opacity: 0 !important;
   visibility: hidden;
 }
 
@@ -120,11 +120,11 @@ li > ul {
 }
 
 /* Transition for in-place removal */
-li {
+#stats li {
   transition: opacity 0.25s ease-out, max-height 0.25s ease-out, margin 0.25s ease-out, padding 0.25s ease-out;
 }
 
-li.removing {
+#stats li.removing {
   opacity: 0;
   max-height: 0 !important;
   margin: 0 !important;

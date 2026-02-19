@@ -19,14 +19,16 @@ class Tab {
       refreshOrEvent.stopPropagation();
     }
 
-    const scheme = getScheme(this.url);
+    const url = this.url || this.obj?.url;
+    const scheme = getScheme(url);
     const schemes = scheme ? { [scheme]: 1 } : {};
+    const loadedCount = this.loaded ? 1 : 0;
 
     try {
       await browser.tabs.remove(this.obj.id);
       delete this.obj;
       if (isEvent) {
-        removeElementInPlace(refreshOrEvent, 1, schemes);
+        removeElementInPlace(refreshOrEvent, 1, loadedCount, schemes);
       } else if (refreshOrEvent !== false) {
         window.refresh();
       }
@@ -71,17 +73,22 @@ const TabCollectionMixin = {
     }
 
     const schemes = {};
+    let loadedCount = 0;
     for (const tab of tabsToClose) {
-      const scheme = getScheme(tab.url);
+      const url = tab.url || tab.obj?.url;
+      const scheme = getScheme(url);
       if (scheme) {
         schemes[scheme] = (schemes[scheme] || 0) + 1;
+      }
+      if (tab.loaded) {
+        loadedCount++;
       }
       tab.close(false);
     }
 
     if (ev) {
-      removeElementInPlace(ev, tabsToClose.length, schemes);
-    } else {
+      removeElementInPlace(ev, tabsToClose.length, loadedCount, schemes);
+    } else if (ev !== null) {
       refresh();
     }
   },
@@ -95,16 +102,7 @@ const TabCollectionMixin = {
   }
 };
 
-// For the template system - needs snake_case method name
-Object.defineProperty(TabCollectionMixin, 'close_or_dedup', {
-  value: TabCollectionMixin.closeOrDedup
-});
-
 class TabList {
-  constructor() {
-    Object.assign(this, TabCollectionMixin);
-  }
-
   slice() {
     return Object.keys(this)
       .filter(k => this[k] instanceof Tab)
@@ -116,11 +114,12 @@ class TabList {
   }
 }
 
+Object.assign(TabList.prototype, TabCollectionMixin);
+
 class TabArray extends Array {
   constructor(...args) {
     super();
     this.push(...args);
-    Object.assign(this, TabCollectionMixin);
   }
 
   get collectionByAddress() {
@@ -132,6 +131,8 @@ class TabArray extends Array {
     return result;
   }
 }
+
+Object.assign(TabArray.prototype, TabCollectionMixin);
 
 class DedupableTabArray extends TabArray {
   dedup(ev) {
@@ -150,15 +151,26 @@ class TabGroup {
 
     const schemes = {};
     let closedCount = 0;
+    let loadedCount = 0;
+    const isDedup = methodName === 'dedup';
 
     for (const key of Object.keys(this)) {
       const group = this[key];
       if (!group?.[methodName]) continue;
 
-      for (const tab of group) {
-        const scheme = getScheme(tab.url);
+      let skipped = false;
+      for (const tab of (isDedup ? group.byLastAccessed() : group)) {
+        if (isDedup && !skipped) {
+          skipped = true;
+          continue;
+        }
+        const url = tab.url || tab.obj?.url;
+        const scheme = getScheme(url);
         if (scheme) {
           schemes[scheme] = (schemes[scheme] || 0) + 1;
+        }
+        if (tab.loaded) {
+          loadedCount++;
         }
         closedCount++;
       }
@@ -166,7 +178,7 @@ class TabGroup {
     }
 
     if (ev) {
-      removeElementInPlace(ev, closedCount, schemes);
+      removeElementInPlace(ev, closedCount, loadedCount, schemes);
     } else {
       refresh();
     }
@@ -240,7 +252,7 @@ function getScheme(url) {
   return match?.[1] ?? null;
 }
 
-function removeElementInPlace(ev, closedCount, schemes) {
+function removeElementInPlace(ev, closedCount, loadedCount, schemes) {
   let li = ev.target;
   while (li && li.tagName !== 'LI') {
     li = li.parentNode;
@@ -265,10 +277,10 @@ function removeElementInPlace(ev, closedCount, schemes) {
 
   // Update "loaded tabs" count
   const loadedLi = document.querySelector('#stats > li:first-child');
-  if (loadedLi && closedCount > 0) {
+  if (loadedLi && loadedCount > 0) {
     const match = loadedLi.textContent.match(/^(\d+)/);
     if (match) {
-      const newLoaded = Math.max(0, (parseInt(match[1]) || 0) - closedCount);
+      const newLoaded = Math.max(0, (parseInt(match[1]) || 0) - loadedCount);
       loadedLi.textContent = `${newLoaded} tab${newLoaded === 1 ? '' : 's'} ${newLoaded === 1 ? 'has' : 'have'} been loaded`;
     }
   }
