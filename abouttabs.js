@@ -447,6 +447,8 @@ function toggleSelf(ev) {
 
 function toggleParentParentParent(ev) {
   toggle(ev.currentTarget.parentNode.parentNode.parentNode);
+  // Prevent navigating to # (top of page).
+  ev.preventDefault();
 }
 
 function toggle(node) {
