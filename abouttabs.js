@@ -32,8 +32,10 @@ class Tab {
       } else if (refreshOrEvent !== false) {
         window.refresh();
       }
+      return true;
     } catch (e) {
       onError(e);
+      return false;
     }
   }
 
@@ -56,7 +58,7 @@ class Tab {
 
 // Mixin for shared tab collection methods
 const TabCollectionMixin = {
-  closeOrDedup(keepOne, ev) {
+  async closeOrDedup(keepOne, ev) {
     if (ev) {
       ev.preventDefault();
       ev.stopPropagation();
@@ -72,9 +74,12 @@ const TabCollectionMixin = {
       tabsToClose.push(tab);
     }
 
+    const results = await Promise.all(tabsToClose.map(tab => tab.close(false)));
+    const closedTabs = tabsToClose.filter((_, index) => results[index]);
+
     const schemes = {};
     let loadedCount = 0;
-    for (const tab of tabsToClose) {
+    for (const tab of closedTabs) {
       const url = tab.url || tab.obj?.url;
       const scheme = getScheme(url);
       if (scheme) {
@@ -83,18 +88,23 @@ const TabCollectionMixin = {
       if (tab.loaded) {
         loadedCount++;
       }
-      tab.close(false);
     }
 
     if (ev) {
-      removeElementInPlace(ev, tabsToClose.length, loadedCount, schemes);
+      if (closedTabs.length === tabsToClose.length) {
+        removeElementInPlace(ev, closedTabs.length, loadedCount, schemes);
+      } else {
+        await refresh();
+      }
     } else if (ev !== null) {
-      refresh();
+      await refresh();
     }
+
+    return { attempted: tabsToClose.length, closedTabs };
   },
 
   close(ev) {
-    this.closeOrDedup(false, ev);
+    return this.closeOrDedup(false, ev);
   },
 
   *byLastAccessed() {
@@ -103,10 +113,28 @@ const TabCollectionMixin = {
 };
 
 class TabList {
+  constructor() {
+    this.tabs = new Map();
+  }
+
+  has(key) {
+    return this.tabs.has(key);
+  }
+
+  get(key) {
+    return this.tabs.get(key);
+  }
+
+  set(key, tab) {
+    this.tabs.set(key, tab);
+  }
+
+  delete(key) {
+    this.tabs.delete(key);
+  }
+
   slice() {
-    return Object.keys(this)
-      .filter(k => this[k] instanceof Tab)
-      .map(k => this[k]);
+    return [...this.tabs.values()];
   }
 
   *[Symbol.iterator]() {
@@ -136,71 +164,74 @@ Object.assign(TabArray.prototype, TabCollectionMixin);
 
 class DedupableTabArray extends TabArray {
   dedup(ev) {
-    this.closeOrDedup(true, ev);
+    return this.closeOrDedup(true, ev);
   }
 }
 
 class TabGroup {
-  constructor() {}
+  constructor() {
+    this.groups = new Map();
+  }
 
-  _groupMethod(methodName, ev) {
+  has(key) {
+    return this.groups.has(key);
+  }
+
+  get(key) {
+    return this.groups.get(key);
+  }
+
+  set(key, group) {
+    this.groups.set(key, group);
+  }
+
+  async _groupMethod(methodName, ev) {
     if (ev) {
       ev.preventDefault();
       ev.stopPropagation();
     }
 
+    const groups = [...this.groups.values()].filter(group => group?.[methodName]);
+    const results = await Promise.all(groups.map(group => group[methodName](null)));
+    const attempted = results.reduce((total, result) => total + result.attempted, 0);
+    const closedTabs = results.flatMap(result => result.closedTabs);
+
     const schemes = {};
-    let closedCount = 0;
     let loadedCount = 0;
-    const isDedup = methodName === 'dedup';
-
-    for (const key of Object.keys(this)) {
-      const group = this[key];
-      if (!group?.[methodName]) continue;
-
-      let skipped = false;
-      for (const tab of (isDedup ? group.byLastAccessed() : group)) {
-        if (isDedup && !skipped) {
-          skipped = true;
-          continue;
-        }
-        const url = tab.url || tab.obj?.url;
-        const scheme = getScheme(url);
-        if (scheme) {
-          schemes[scheme] = (schemes[scheme] || 0) + 1;
-        }
-        if (tab.loaded) {
-          loadedCount++;
-        }
-        closedCount++;
+    for (const tab of closedTabs) {
+      const url = tab.url || tab.obj?.url;
+      const scheme = getScheme(url);
+      if (scheme) {
+        schemes[scheme] = (schemes[scheme] || 0) + 1;
       }
-      group[methodName](null);
+      if (tab.loaded) {
+        loadedCount++;
+      }
     }
 
     if (ev) {
-      removeElementInPlace(ev, closedCount, loadedCount, schemes);
+      if (closedTabs.length === attempted) {
+        removeElementInPlace(ev, closedTabs.length, loadedCount, schemes);
+      } else {
+        await refresh();
+      }
     } else {
-      refresh();
+      await refresh();
     }
   }
 
   close(ev) {
-    this._groupMethod('close', ev);
+    return this._groupMethod('close', ev);
   }
 
   *byLength() {
-    const keys = Object.keys(this)
-      .filter(k => this[k]?.length !== undefined)
-      .sort((a, b) => this[b].length - this[a].length);
-    for (const key of keys) {
-      yield this[key];
-    }
+    yield* [...this.groups.values()].sort((a, b) => b.length - a.length);
   }
 }
 
 class DedupableTabGroup extends TabGroup {
   dedup(ev) {
-    this._groupMethod('dedup', ev);
+    return this._groupMethod('dedup', ev);
   }
 }
 
@@ -218,23 +249,24 @@ class TabCollection {
   }
 
   add(key, tab) {
-    if (key in this.unique) {
-      const otherTab = this.unique[key];
+    if (this.unique.has(key)) {
+      const otherTab = this.unique.get(key);
       const ArrayType = this.what === 'address' ? DedupableTabArray : TabArray;
-      const dupes = this.dupes[key] = new ArrayType(otherTab, tab);
+      const dupes = new ArrayType(otherTab, tab);
+      this.dupes.set(key, dupes);
       dupes.favicon = tab.favicon === otherTab.favicon ? tab.favicon : undefined;
       dupes.title = tab.title === otherTab.title ? tab.title : undefined;
       dupes.url = tab.url;
       this.numDupes++;
-      delete this.unique[key];
+      this.unique.delete(key);
       this.numUnique--;
-    } else if (key in this.dupes) {
-      const dupes = this.dupes[key];
+    } else if (this.dupes.has(key)) {
+      const dupes = this.dupes.get(key);
       dupes.push(tab);
       if (dupes.favicon !== tab.favicon) delete dupes.favicon;
       if (dupes.title !== tab.title) delete dupes.title;
     } else {
-      this.unique[key] = tab;
+      this.unique.set(key, tab);
       this.numUnique++;
     }
   }
