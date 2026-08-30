@@ -17,6 +17,16 @@
   "permissions": [
     "tabs"
   ],
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "{04502119-8143-4ae5-8a9d-177f504a5b24}",
+      "data_collection_permissions": {
+        "required": [
+          "none"
+        ]
+      }
+    }
+  },
   "background": {
     "scripts": [
       "background.js"

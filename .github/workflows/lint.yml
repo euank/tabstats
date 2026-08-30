@@ -1,0 +1,16 @@
+name: Lint
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  web-ext:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Lint extension
+        run: npx --yes web-ext@10.6.0 lint --warnings-as-errors --source-dir .
